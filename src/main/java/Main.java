@@ -4,8 +4,6 @@ import burp.api.montoya.core.HighlightColor;
 import burp.api.montoya.http.handler.*;
 import burp.api.montoya.logging.Logging;
 
-import javax.swing.table.DefaultTableModel;
-
 public class Main implements BurpExtension, HttpHandler {
 
     MontoyaApi api;
@@ -17,32 +15,34 @@ public class Main implements BurpExtension, HttpHandler {
         this.logging = api.logging();
         this.logging.logToOutput("Extension loaded!");
 
+        newMainUI ui = new newMainUI();
+        newMainUI.initializePersistence(api.persistence().extensionData());
+        api.userInterface().registerSuiteTab("ProxyMatchAutoHighlight", ui);
         api.http().registerHttpHandler(this);
-        api.userInterface().registerSuiteTab("ProxyMatchAutoHighlight", new newMainUI());
     }
 
     @Override
     public RequestToBeSentAction handleHttpRequestToBeSent(HttpRequestToBeSent httpRequestToBeSent) {
-        if (httpRequestToBeSent.isInScope()) {
-
-            String stringPath = httpRequestToBeSent.path();
-            String stringPathNoQueries = stringPath.contains("?") ? stringPath.substring(0, stringPath.indexOf("?")) : stringPath;
-            DefaultTableModel modelFromAPIMapperTable = (DefaultTableModel) newMainUI.APIMapperTable.getModel();
-            DefaultTableModel modelFromProxyMatchTable = (DefaultTableModel) newMainUI.ProxyMatchTable.getModel();
-            modelFromAPIMapperTable.addRow(new Object[]{stringPathNoQueries});
-            for (int i = 0; i < modelFromProxyMatchTable.getRowCount(); i++) {
-                String endPoint = (String) modelFromProxyMatchTable.getValueAt(i, 0);
-                if (stringPath.contains(endPoint)) {
-                    return RequestToBeSentAction.continueWith(httpRequestToBeSent, httpRequestToBeSent.annotations().withHighlightColor(HighlightColor.YELLOW));
-                }
-            }
+        if (!httpRequestToBeSent.isInScope()) {
             return RequestToBeSentAction.continueWith(httpRequestToBeSent);
         }
-        return null;
+
+        String path = httpRequestToBeSent.path();
+        String pathNoQueries = newMainUI.stripQueryAndFragment(path);
+        newMainUI.addMappedEndpoint(pathNoQueries);
+
+        HighlightColor matchedColor = newMainUI.findMatchingColor(pathNoQueries);
+        if (matchedColor != null && matchedColor != HighlightColor.NONE) {
+            return RequestToBeSentAction.continueWith(
+                    httpRequestToBeSent,
+                    httpRequestToBeSent.annotations().withHighlightColor(matchedColor)
+            );
+        }
+        return RequestToBeSentAction.continueWith(httpRequestToBeSent);
     }
 
     @Override
     public ResponseReceivedAction handleHttpResponseReceived(HttpResponseReceived httpResponseReceived) {
-        return null;
+        return ResponseReceivedAction.continueWith(httpResponseReceived);
     }
 }
